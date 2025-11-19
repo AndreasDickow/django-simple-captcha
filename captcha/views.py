@@ -204,96 +204,52 @@ def captcha_image(request, key, scale=1):
 
 
 def captcha_audio(request, key):
-    if settings.CAPTCHA_FLITE_PATH:
-        try:
-            store = CaptchaStore.objects.get(hashkey=key)
-        except CaptchaStore.DoesNotExist:
-            # HTTP 410 Gone status so that crawlers don't index these expired urls.
-            return HttpResponse(status=410)
+    
+    try:
+        store = CaptchaStore.objects.get(hashkey=key)
+    except CaptchaStore.DoesNotExist:
+        # HTTP 410 Gone status so that crawlers don't index these expired urls.
+        return HttpResponse(status=410)
 
-        text = store.challenge
-        if "captcha.helpers.math_challenge" == settings.CAPTCHA_CHALLENGE_FUNCT:
-            text = text.replace("*", "times").replace("-", "minus").replace("+", "plus")
-        else:
-            text = ", ".join(list(text))
-        path = str(
-            os.path.join(tempfile.gettempdir(), f"{key}_{secrets.token_urlsafe(6)}.wav")
+    text = store.challenge
+    if "captcha.helpers.math_challenge" == settings.CAPTCHA_CHALLENGE_FUNCT:
+        text = text.replace("*", "times").replace("-", "minus").replace("+", "plus")
+    else:
+        text = ", ".join(list(text))
+    
+    path = str(
+        os.path.join(tempfile.gettempdir(), f"{key}_{secrets.token_urlsafe(6)}.wav")
+    )
+    name = text
+    """Erzeugt eine WAV-Datei für den Captcha-Text."""
+    audio_dir = getattr(settings, "CAPTCHA_AUDIO_DIR", "/tmp/captcha_audio")
+    os.makedirs(audio_dir, exist_ok=True)
+
+    audio_file = os.path.join(audio_dir, f"{key}.wav")
+    espeak_path = getattr(settings, "CAPTCHA_ESPEAK_PATH", "espeak")
+
+    # Generiere Audio
+    subprocess.run([espeak_path, "-w", audio_file, text], check=True)
+
+    # Rückgabe relativer URL für Template
+    relative_path = os.path.relpath(audio_file, settings.BASE_DIR)
+    return "/" + relative_path.replace(os.sep, "/")
+
+    if os.path.isfile(path):
+        # Move the response file to a filelike that will be deleted on close
+        temporary_file = tempfile.TemporaryFile()
+        with open(path, "rb") as original_file:
+            temporary_file.write(original_file.read())
+        temporary_file.seek(0)
+        os.remove(path)
+
+        response = RangedFileResponse(
+            request, temporary_file, content_type="audio/wav"
         )
-        subprocess.run([settings.CAPTCHA_FLITE_PATH, "-t", text, "-o", path])
-
-        # Add arbitrary noise if sox is installed
-        if settings.CAPTCHA_SOX_PATH:
-            try:
-                sample_rate = (
-                    subprocess.run(
-                        [settings.CAPTCHA_SOX_PATH, "--i", "-r", path],
-                        capture_output=True,
-                    )
-                    .stdout.decode()
-                    .strip()
-                )
-
-            except Exception:
-                sample_rate = "8000"
-
-            arbnoisepath = str(
-                os.path.join(
-                    tempfile.gettempdir(),
-                    f"{key}_{secrets.token_urlsafe(6)}_noise.wav",
-                )
-            )
-            subprocess.run(
-                [
-                    settings.CAPTCHA_SOX_PATH,
-                    "-r",
-                    sample_rate,
-                    "-n",
-                    arbnoisepath,
-                    "synth",
-                    "2",
-                    "brownnoise",
-                    "gain",
-                    "-15",
-                ]
-            )
-            mergedpath = str(
-                os.path.join(
-                    tempfile.gettempdir(),
-                    f"{key}_{secrets.token_urlsafe(6)}_merged.wav",
-                )
-            )
-            subprocess.run(
-                [
-                    settings.CAPTCHA_SOX_PATH,
-                    "-m",
-                    arbnoisepath,
-                    path,
-                    "-t",
-                    "wavpcm",
-                    "-b",
-                    "16",
-                    mergedpath,
-                ]
-            )
-            os.remove(arbnoisepath)
-            os.remove(path)
-            os.rename(mergedpath, path)
-
-        if os.path.isfile(path):
-            # Move the response file to a filelike that will be deleted on close
-            temporary_file = tempfile.TemporaryFile()
-            with open(path, "rb") as original_file:
-                temporary_file.write(original_file.read())
-            temporary_file.seek(0)
-            os.remove(path)
-
-            response = RangedFileResponse(
-                request, temporary_file, content_type="audio/wav"
-            )
-            response["Content-Disposition"] = 'attachment; filename="{}.wav"'.format(
-                key
-            )
-            return response
+        response["Content-Disposition"] = 'attachment; filename="{}.wav"'.format(
+            key
+        )
+        return response
     raise Http404
 
 
