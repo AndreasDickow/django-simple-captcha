@@ -1,9 +1,9 @@
 {% load i18n %}
 {% spaceless %}
-    {% if audio %}
-        <a title="{% trans "Play CAPTCHA as audio file" %}" href="{{ audio }}">
-    {% endif %}
+    
+        <a title="{% trans "Play CAPTCHA as audio file" %}" aria-label="play audio captcha" href="{{ audio }}">
+    
     <img src="{{ image }}" alt="captcha" class="captcha" />
-    {% if audio %}</a>{% endif %}
+    {% if audio %}</a>
 {% endspaceless %}
 {% spaceless %}{% for widget in widget.subwidgets %}{% include widget.template_name %}{% endfor %}{% endspaceless %}
